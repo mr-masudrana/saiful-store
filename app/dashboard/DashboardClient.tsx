@@ -1,40 +1,37 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  CalendarDays,
+  CircleDollarSign,
+  ReceiptText,
+  UserCheck,
   Users,
-  UserRoundCheck,
-  Wallet,
-  CreditCard,
-  TrendingUp,
-  Download,
-  RefreshCw,
-  LogOut,
-  UserPlus,
-  FileText,
-  Loader2,
+  WalletCards,
 } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { toast } from "sonner";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
 
 import {
-  getDashboardOverview,
-  getMonthlyStats,
+  getDashboardStats,
   getMonthlyChart,
+  getTodayTransactions,
   type DashboardStats,
-  type MonthlyStats,
   type ChartData,
+  type TodayTransaction,
 } from "@/lib/dashboard";
-
-import DashboardChart from "@/components/DashboardChart";
-
-type Props = {
-  user: {
-    email?: string;
-  };
-};
 
 const months = [
   "জানুয়ারি",
@@ -51,833 +48,663 @@ const months = [
   "ডিসেম্বর",
 ];
 
-export default function DashboardClient({
-  user,
-}: Props) {
-  const router = useRouter();
+const years = Array.from(
+  { length: 6 },
+  (_, index) => new Date().getFullYear() - index
+);
 
+function formatMoney(value: number) {
+  return `৳ ${value.toLocaleString("en-BD", {
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatTime(date: string) {
+  return new Date(date).toLocaleTimeString("bn-BD", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(date: string) {
+  return new Date(date).toLocaleDateString("bn-BD", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function CustomTooltip({
+  active,
+  payload,
+  label,
+  monthName,
+}: any) {
+  if (!active || !payload || !payload.length) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-xl">
+      <p className="mb-2 text-sm font-semibold text-white">
+        {label} {monthName}
+      </p>
+
+      {payload.map((item: any) => (
+        <div
+          key={item.dataKey}
+          className="flex items-center justify-between gap-6 text-sm"
+        >
+          <span className="text-slate-400">
+            {item.dataKey === "due"
+              ? "বাকি"
+              : item.dataKey === "payment"
+              ? "জমা"
+              : "নেট"}
+          </span>
+
+          <span className="font-semibold text-white">
+            {formatMoney(Number(item.value))}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function DashboardClient() {
   const now = new Date();
 
-  const [selectedMonth, setSelectedMonth] =
-    useState(now.getMonth() + 1);
+  const [year, setYear] = useState(
+    now.getFullYear()
+  );
 
-  const [selectedYear, setSelectedYear] =
-    useState(now.getFullYear());
+  const [month, setMonth] = useState(
+    now.getMonth() + 1
+  );
 
-  const [overview, setOverview] =
+  const [stats, setStats] =
     useState<DashboardStats | null>(null);
 
-  const [monthly, setMonthly] =
-    useState<MonthlyStats | null>(null);
-
-  const [chart, setChart] =
+  const [chartData, setChartData] =
     useState<ChartData[]>([]);
+
+  const [todayTransactions, setTodayTransactions] =
+    useState<TodayTransaction[]>([]);
+
+  const [todayDue, setTodayDue] =
+    useState(0);
+
+  const [todayPayment, setTodayPayment] =
+    useState(0);
 
   const [loading, setLoading] =
     useState(true);
 
-  const [pdfLoading, setPdfLoading] =
-    useState(false);
+  const [email, setEmail] =
+    useState("");
 
-  const reportRef =
-    useRef<HTMLDivElement>(null);
-
-  const years = useMemo(() => {
-    const currentYear = now.getFullYear();
-
-    return Array.from(
-      { length: 10 },
-      (_, index) =>
-        currentYear - 5 + index
-    );
-  }, []);
-
-  const formatMoney = (value: number) => {
-    return `৳ ${value.toLocaleString("en-BD", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    })}`;
-  };
-
-  const loadDashboard = async () => {
-    try {
-      setLoading(true);
-
-      const [
-        overviewData,
-        monthlyData,
-        chartData,
-      ] = await Promise.all([
-        getDashboardOverview(),
-        getMonthlyStats(
-          selectedYear,
-          selectedMonth
-        ),
-        getMonthlyChart(
-          selectedYear,
-          selectedMonth
-        ),
-      ]);
-
-      setOverview(overviewData);
-      setMonthly(monthlyData);
-      setChart(chartData);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Dashboard load করা যায়নি।"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const selectedMonthName =
+    months[month - 1];
 
   useEffect(() => {
-    loadDashboard();
-  }, [selectedMonth, selectedYear]);
+    async function loadDashboard() {
+      try {
+        setLoading(true);
 
-  const handleLogout = async () => {
-    try {
-      const { createClient } =
-        await import("@/lib/supabase/client");
+        const [
+          dashboardStats,
+          monthlyChart,
+          todayData,
+        ] = await Promise.all([
+          getDashboardStats(year, month),
+          getMonthlyChart(year, month),
+          getTodayTransactions(),
+        ]);
 
-      const supabase = createClient();
+        setStats(dashboardStats);
+        setChartData(monthlyChart);
 
-      await supabase.auth.signOut();
-
-      router.push("/login");
-      router.refresh();
-    } catch {
-      toast.error("Logout করা যায়নি।");
-    }
-  };
-
-  const downloadPDF = async () => {
-    if (!reportRef.current || !monthly || !overview) {
-      return;
-    }
-
-    try {
-      setPdfLoading(true);
-
-      const canvas = await html2canvas(
-        reportRef.current,
-        {
-          scale: 2,
-          backgroundColor: "#ffffff",
-          useCORS: true,
-        }
-      );
-
-      const imageData =
-        canvas.toDataURL("image/png");
-
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      });
-
-      const pageWidth =
-        pdf.internal.pageSize.getWidth();
-
-      const pageHeight =
-        pdf.internal.pageSize.getHeight();
-
-      const margin = 10;
-
-      const imageWidth =
-        pageWidth - margin * 2;
-
-      const imageHeight =
-        (canvas.height * imageWidth) /
-        canvas.width;
-
-      let heightLeft = imageHeight;
-      let position = margin;
-
-      pdf.addImage(
-        imageData,
-        "PNG",
-        margin,
-        position,
-        imageWidth,
-        imageHeight
-      );
-
-      heightLeft -=
-        pageHeight - margin * 2;
-
-      while (heightLeft > 0) {
-        position =
-          heightLeft -
-          imageHeight +
-          margin;
-
-        pdf.addPage();
-
-        pdf.addImage(
-          imageData,
-          "PNG",
-          margin,
-          position,
-          imageWidth,
-          imageHeight
+        setTodayTransactions(
+          todayData.transactions
         );
 
-        heightLeft -=
-          pageHeight - margin * 2;
+        setTodayDue(todayData.totalDue);
+        setTodayPayment(
+          todayData.totalPayment
+        );
+      } catch (error) {
+        console.error(error);
+
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Dashboard data load failed"
+        );
+      } finally {
+        setLoading(false);
       }
-
-      const monthName =
-        months[selectedMonth - 1];
-
-      pdf.save(
-        `Saiful-Store-${monthName}-${selectedYear}.pdf`
-      );
-
-      toast.success(
-        "PDF সফলভাবে download হয়েছে।"
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast.error(
-        "PDF তৈরি করা যায়নি।"
-      );
-    } finally {
-      setPdfLoading(false);
     }
-  };
+
+    loadDashboard();
+  }, [year, month]);
+
+  useEffect(() => {
+    async function loadUser() {
+      try {
+        const { createClient } =
+          await import("@/lib/supabase/client");
+
+        const supabase = createClient();
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        setEmail(user?.email ?? "");
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    loadUser();
+  }, []);
+
+  const todayBalance = useMemo(
+    () => todayDue - todayPayment,
+    [todayDue, todayPayment]
+  );
+
+  if (loading && !stats) {
+    return (
+      <main className="min-h-screen bg-slate-950 px-4 pb-28 pt-6 text-white">
+        <div className="mx-auto max-w-6xl">
+          <div className="animate-pulse space-y-5">
+            <div className="h-8 w-48 rounded bg-slate-800" />
+            <div className="h-4 w-64 rounded bg-slate-800" />
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="h-36 rounded-2xl bg-slate-900" />
+              <div className="h-36 rounded-2xl bg-slate-900" />
+              <div className="h-36 rounded-2xl bg-slate-900" />
+            </div>
+
+            <div className="h-96 rounded-2xl bg-slate-900" />
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 pb-28 pt-5 md:px-8 md:pb-10">
+    <main className="min-h-screen bg-slate-950 px-4 pb-28 pt-6 text-white md:px-8">
       <div className="mx-auto max-w-6xl">
 
         {/* Header */}
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs text-slate-500">
-              Saiful Store Management
+        <header className="mb-7">
+          <p className="text-sm text-slate-500">
+            Saiful Store Management
+          </p>
+
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">
+            Dashboard
+          </h1>
+
+          {email && (
+            <p className="mt-1 text-sm text-slate-400">
+              {email}
             </p>
+          )}
+        </header>
 
-            <h1 className="mt-1 text-2xl font-bold text-white">
-              Dashboard
-            </h1>
+        {/* Stats */}
+        <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
 
-            <p className="mt-1 text-xs text-slate-500">
-              {user.email}
-            </p>
-          </div>
+          {/* Customers */}
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-slate-800 bg-slate-900 p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  মোট Customer
+                </p>
 
-          <div className="flex gap-2">
-            <button
-              onClick={() =>
-                router.push("/customers")
-              }
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"
-            >
-              <Users size={17} />
-              Customers
-            </button>
+                <p className="mt-2 text-4xl font-bold">
+                  {stats?.totalCustomers ?? 0}
+                </p>
+              </div>
 
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800"
-            >
-              <LogOut size={17} />
-              Logout
-            </button>
-          </div>
-        </div>
-
-        {/* ================================= */}
-        {/* OVERVIEW */}
-        {/* ================================= */}
-
-        <section className="mb-6">
-          <h2 className="mb-3 text-lg font-bold text-white">
-            দোকানের বর্তমান অবস্থা
-          </h2>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-
-            {/* Total Customers */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">
-                    মোট Customer
-                  </p>
-
-                  <p className="mt-2 text-3xl font-bold text-white">
-                    {loading
-                      ? "—"
-                      : overview?.totalCustomers ?? 0}
-                  </p>
-                </div>
-
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-                  <Users size={23} />
-                </div>
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600/15 text-blue-400">
+                <Users size={28} />
               </div>
             </div>
+          </motion.div>
 
-            {/* Customers With Due */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">
-                    বাকি Customer
-                  </p>
+          {/* Due customers */}
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="rounded-2xl border border-slate-800 bg-slate-900 p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  বাকি Customer
+                </p>
 
-                  <p className="mt-2 text-3xl font-bold text-red-400">
-                    {loading
-                      ? "—"
-                      : overview?.customersWithDue ??
-                        0}
-                  </p>
-                </div>
+                <p className="mt-2 text-4xl font-bold text-red-400">
+                  {stats?.dueCustomers ?? 0}
+                </p>
+              </div>
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
-                  <UserRoundCheck size={23} />
-                </div>
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
+                <UserCheck size={28} />
               </div>
             </div>
+          </motion.div>
 
-            {/* Current Balance */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">
-                    বর্তমান মোট বাকি
-                  </p>
+          {/* Current balance */}
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="rounded-2xl border border-slate-800 bg-slate-900 p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  বর্তমান মোট বাকি
+                </p>
 
-                  <p className="mt-2 text-3xl font-bold text-amber-400">
-                    {loading
-                      ? "—"
-                      : formatMoney(
-                          overview?.totalCurrentBalance ??
-                            0
-                        )}
-                  </p>
-                </div>
+                <p className="mt-2 text-3xl font-bold text-amber-400">
+                  {formatMoney(
+                    stats?.currentBalance ?? 0
+                  )}
+                </p>
+              </div>
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
-                  <Wallet size={23} />
-                </div>
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400">
+                <WalletCards size={28} />
               </div>
             </div>
-          </div>
+          </motion.div>
         </section>
 
-        {/* ================================= */}
-        {/* MONTH FILTER */}
-        {/* ================================= */}
+        {/* Monthly report */}
+        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
 
-        <section className="mb-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 
             <div>
-              <h2 className="font-bold text-white">
-                মাসিক হিসাব
-              </h2>
+              <div className="flex items-center gap-2">
+                <CalendarDays
+                  size={21}
+                  className="text-blue-400"
+                />
 
-              <p className="mt-1 text-xs text-slate-500">
-                যে মাসের হিসাব দেখতে চান নির্বাচন করুন
+                <h2 className="text-xl font-bold">
+                  {selectedMonthName} {year}-এর হিসাব
+                </h2>
+              </div>
+
+              <p className="mt-1 text-sm text-slate-400">
+                প্রতিদিনের বাকি ও জমার পরিমাণ
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">
-                  মাস
-                </label>
-
-                <select
-                  value={selectedMonth}
-                  onChange={(e) =>
-                    setSelectedMonth(
-                      Number(e.target.value)
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 sm:w-40"
-                >
-                  {months.map(
-                    (month, index) => (
-                      <option
-                        key={month}
-                        value={index + 1}
-                      >
-                        {month}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">
-                  বছর
-                </label>
-
-                <select
-                  value={selectedYear}
-                  onChange={(e) =>
-                    setSelectedYear(
-                      Number(e.target.value)
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 sm:w-32"
-                >
-                  {years.map((year) => (
-                    <option
-                      key={year}
-                      value={year}
-                    >
-                      {year}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={loadDashboard}
-                disabled={loading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            {/* Filters */}
+            <div className="flex gap-2">
+              <select
+                value={month}
+                onChange={(e) =>
+                  setMonth(Number(e.target.value))
+                }
+                className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
               >
-                <RefreshCw
-                  size={16}
-                  className={
-                    loading
-                      ? "animate-spin"
-                      : ""
+                {months.map((name, index) => (
+                  <option
+                    key={name}
+                    value={index + 1}
+                  >
+                    {name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={year}
+                onChange={(e) =>
+                  setYear(Number(e.target.value))
+                }
+                className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+              >
+                {years.map((item) => (
+                  <option
+                    key={item}
+                    value={item}
+                  >
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Monthly summary */}
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+
+            <div className="rounded-xl bg-red-500/10 p-4">
+              <div className="flex items-center gap-2 text-red-400">
+                <ArrowDownLeft size={18} />
+
+                <span className="text-sm">
+                  এই মাসে বাকি
+                </span>
+              </div>
+
+              <p className="mt-2 text-xl font-bold text-red-400">
+                {formatMoney(
+                  stats?.totalDue ?? 0
+                )}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-emerald-500/10 p-4">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <ArrowUpRight size={18} />
+
+                <span className="text-sm">
+                  এই মাসে জমা
+                </span>
+              </div>
+
+              <p className="mt-2 text-xl font-bold text-emerald-400">
+                {formatMoney(
+                  stats?.totalPayment ?? 0
+                )}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-blue-500/10 p-4">
+              <div className="flex items-center gap-2 text-blue-400">
+                <CircleDollarSign size={18} />
+
+                <span className="text-sm">
+                  মাসের নেট
+                </span>
+              </div>
+
+              <p className="mt-2 text-xl font-bold text-blue-400">
+                {formatMoney(
+                  (stats?.totalDue ?? 0) -
+                    (stats?.totalPayment ?? 0)
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Chart */}
+          <div className="h-[360px] w-full">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
+              <ComposedChart
+                data={chartData}
+                margin={{
+                  top: 10,
+                  right: 10,
+                  left: 0,
+                  bottom: 5,
+                }}
+              >
+                <CartesianGrid
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.15}
+                />
+
+                <XAxis
+                  dataKey="label"
+                  tick={{
+                    fill: "#94a3b8",
+                    fontSize: 11,
+                  }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+
+                <YAxis
+                  tick={{
+                    fill: "#94a3b8",
+                    fontSize: 11,
+                  }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={55}
+                />
+
+                <Tooltip
+                  content={
+                    <CustomTooltip
+                      monthName={selectedMonthName}
+                    />
                   }
                 />
-                Refresh
-              </button>
 
-              <button
-                onClick={downloadPDF}
-                disabled={
-                  pdfLoading ||
-                  loading ||
-                  !monthly
-                }
-                className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
-              >
-                {pdfLoading ? (
-                  <Loader2
-                    size={16}
-                    className="animate-spin"
-                  />
-                ) : (
-                  <Download size={16} />
-                )}
+                <Bar
+                  dataKey="due"
+                  name="Due"
+                  fill="#ef4444"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={18}
+                />
 
-                {pdfLoading
-                  ? "PDF তৈরি হচ্ছে..."
-                  : "PDF Download"}
-              </button>
+                <Bar
+                  dataKey="payment"
+                  name="Payment"
+                  fill="#10b981"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={18}
+                />
+
+                <Line
+                  type="monotone"
+                  dataKey="net"
+                  name="Net"
+                  stroke="#60a5fa"
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{
+                    r: 5,
+                  }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="mt-3 flex flex-wrap justify-center gap-5 text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+              বাকি
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              জমা
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-blue-400" />
+              নেট
             </div>
           </div>
         </section>
 
-        {/* ================================= */}
-        {/* MONTHLY STATS */}
-        {/* ================================= */}
+        {/* Today's transactions */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
 
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-
-          {/* Monthly Due */}
-          <div className="rounded-2xl border border-red-500/10 bg-red-500/5 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">
-                  এই মাসের মোট বাকি
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-red-400">
-                  {loading
-                    ? "—"
-                    : formatMoney(
-                        monthly?.totalDue ?? 0
-                      )}
-                </p>
-              </div>
-
-              <TrendingUp
-                className="text-red-400"
-                size={24}
-              />
-            </div>
-          </div>
-
-          {/* Monthly Payment */}
-          <div className="rounded-2xl border border-emerald-500/10 bg-emerald-500/5 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">
-                  এই মাসের মোট জমা
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-emerald-400">
-                  {loading
-                    ? "—"
-                    : formatMoney(
-                        monthly?.totalPayment ?? 0
-                      )}
-                </p>
-              </div>
-
-              <CreditCard
-                className="text-emerald-400"
-                size={24}
-              />
-            </div>
-          </div>
-
-          {/* Monthly Net */}
-          <div className="rounded-2xl border border-blue-500/10 bg-blue-500/5 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">
-                  এই মাসের নেট বাকি
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-blue-400">
-                  {loading
-                    ? "—"
-                    : formatMoney(
-                        monthly?.balance ?? 0
-                      )}
-                </p>
-              </div>
-
-              <Wallet
+          <div className="mb-5">
+            <div className="flex items-center gap-2">
+              <ReceiptText
+                size={22}
                 className="text-blue-400"
-                size={24}
               />
+
+              <h2 className="text-xl font-bold">
+                আজকের লেনদেন
+              </h2>
             </div>
-          </div>
-        </div>
 
-        {/* ================================= */}
-        {/* CHART */}
-        {/* ================================= */}
-
-        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
-          <div className="mb-4">
-            <h2 className="text-lg font-bold text-white">
-              {months[selectedMonth - 1]}{" "}
-              {selectedYear}-এর হিসাব
-            </h2>
-
-            <p className="mt-1 text-xs text-slate-500">
-              প্রতিদিনের বাকি ও জমার পরিমাণ
+            <p className="mt-1 text-sm text-slate-400">
+              আজকের সকল বাকি ও জমার হিসাব
             </p>
           </div>
 
-          {loading ? (
-            <div className="flex h-[300px] items-center justify-center">
-              <Loader2
-                className="animate-spin text-slate-600"
-                size={30}
+          {/* Today's summary */}
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+
+            <div className="rounded-xl bg-red-500/10 p-4">
+              <p className="text-sm text-slate-400">
+                আজকের বাকি
+              </p>
+
+              <p className="mt-2 text-xl font-bold text-red-400">
+                {formatMoney(todayDue)}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-emerald-500/10 p-4">
+              <p className="text-sm text-slate-400">
+                আজকের জমা
+              </p>
+
+              <p className="mt-2 text-xl font-bold text-emerald-400">
+                {formatMoney(todayPayment)}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-blue-500/10 p-4">
+              <p className="text-sm text-slate-400">
+                আজকের নেট
+              </p>
+
+              <p
+                className={`mt-2 text-xl font-bold ${
+                  todayBalance > 0
+                    ? "text-amber-400"
+                    : todayBalance < 0
+                    ? "text-emerald-400"
+                    : "text-slate-300"
+                }`}
+              >
+                {formatMoney(todayBalance)}
+              </p>
+            </div>
+          </div>
+
+          {/* Transaction list */}
+          {todayTransactions.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 py-10 text-center">
+              <ReceiptText
+                size={35}
+                className="mx-auto text-slate-600"
               />
+
+              <p className="mt-3 font-medium text-slate-400">
+                আজ এখনো কোনো লেনদেন নেই
+              </p>
+
+              <p className="mt-1 text-sm text-slate-600">
+                Customer-এর হিসাব থেকে নতুন লেনদেন যোগ করুন
+              </p>
             </div>
           ) : (
-            <DashboardChart data={chart} />
+            <div className="space-y-3">
+              {todayTransactions.map(
+                (transaction) => (
+                  <motion.div
+                    key={transaction.id}
+                    initial={{
+                      opacity: 0,
+                      y: 8,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                    }}
+                    className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+                  >
+                    <div
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+                        transaction.type ===
+                        "due"
+                          ? "bg-red-500/10 text-red-400"
+                          : "bg-emerald-500/10 text-emerald-400"
+                      }`}
+                    >
+                      {transaction.type ===
+                      "due" ? (
+                        <ArrowDownLeft
+                          size={21}
+                        />
+                      ) : (
+                        <ArrowUpRight
+                          size={21}
+                        />
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-white">
+                        {transaction.customer_name}
+                      </p>
+
+                      <p className="mt-1 truncate text-xs text-slate-500">
+                        {transaction.description ||
+                          (transaction.type ===
+                          "due"
+                            ? "বাকি"
+                            : "জমা")}
+                        {" • "}
+                        {formatTime(
+                          transaction.created_at
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p
+                        className={`font-bold ${
+                          transaction.type ===
+                          "due"
+                            ? "text-red-400"
+                            : "text-emerald-400"
+                        }`}
+                      >
+                        {transaction.type ===
+                        "due"
+                          ? "+"
+                          : "-"}
+                        {formatMoney(
+                          transaction.amount
+                        )}
+                      </p>
+
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        {formatDate(
+                          transaction.created_at
+                        )}
+                      </p>
+                    </div>
+                  </motion.div>
+                )
+              )}
+            </div>
           )}
         </section>
-
-        {/* ================================= */}
-        {/* QUICK ACTIONS */}
-        {/* ================================= */}
-
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-          <div className="mb-4">
-            <h2 className="text-lg font-bold text-white">
-              দ্রুত কাজ
-            </h2>
-
-            <p className="mt-1 text-xs text-slate-500">
-              Customer হিসাব দ্রুত পরিচালনা করুন
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-
-            <button
-              onClick={() =>
-                router.push("/customers")
-              }
-              className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 text-left hover:bg-slate-800"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-                <UserPlus size={20} />
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  Customer যোগ করুন
-                </p>
-
-                <p className="text-xs text-slate-500">
-                  নতুন customer সংরক্ষণ করুন
-                </p>
-              </div>
-            </button>
-
-            <button
-              onClick={() =>
-                router.push("/customers")
-              }
-              className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 text-left hover:bg-slate-800"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
-                <FileText size={20} />
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  বাকি হিসাব দেখুন
-                </p>
-
-                <p className="text-xs text-slate-500">
-                  Customer-এর হিসাব পরিচালনা করুন
-                </p>
-              </div>
-            </button>
-          </div>
-        </section>
-
-      </div>
-
-      {/* ================================= */}
-      {/* PDF REPORT */}
-      {/* ================================= */}
-
-      <div
-        ref={reportRef}
-        style={{
-          position: "absolute",
-          left: "-10000px",
-          top: "0",
-          width: "794px",
-          background: "#ffffff",
-          color: "#111827",
-          padding: "40px",
-          fontFamily:
-            "Arial, sans-serif",
-        }}
-      >
-        <div
-          style={{
-            borderBottom:
-              "2px solid #111827",
-            paddingBottom: "20px",
-            marginBottom: "25px",
-          }}
-        >
-          <h1
-            style={{
-              fontSize: "28px",
-              margin: 0,
-            }}
-          >
-            Saiful Store
-          </h1>
-
-          <p
-            style={{
-              marginTop: "8px",
-              color: "#6b7280",
-            }}
-          >
-            Customer Credit Management
-          </p>
-
-          <h2
-            style={{
-              marginTop: "20px",
-              fontSize: "22px",
-            }}
-          >
-            মাসিক হিসাব
-          </h2>
-
-          <p>
-            {months[selectedMonth - 1]}{" "}
-            {selectedYear}
-          </p>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "1fr 1fr 1fr",
-            gap: "15px",
-            marginBottom: "30px",
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid #e5e7eb",
-              padding: "18px",
-              borderRadius: "10px",
-            }}
-          >
-            <p>মোট Customer</p>
-
-            <strong
-              style={{
-                fontSize: "24px",
-              }}
-            >
-              {overview?.totalCustomers ?? 0}
-            </strong>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid #e5e7eb",
-              padding: "18px",
-              borderRadius: "10px",
-            }}
-          >
-            <p>বাকি Customer</p>
-
-            <strong
-              style={{
-                fontSize: "24px",
-              }}
-            >
-              {overview?.customersWithDue ?? 0}
-            </strong>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid #e5e7eb",
-              padding: "18px",
-              borderRadius: "10px",
-            }}
-          >
-            <p>বর্তমান মোট বাকি</p>
-
-            <strong
-              style={{
-                fontSize: "24px",
-              }}
-            >
-              {formatMoney(
-                overview?.totalCurrentBalance ??
-                  0
-              )}
-            </strong>
-          </div>
-        </div>
-
-        <h3
-          style={{
-            fontSize: "20px",
-            marginBottom: "15px",
-          }}
-        >
-          নির্বাচিত মাসের হিসাব
-        </h3>
-
-        <table
-          style={{
-            width: "100%",
-            borderCollapse:
-              "collapse",
-            marginBottom: "30px",
-          }}
-        >
-          <tbody>
-            <tr>
-              <td
-                style={{
-                  border: "1px solid #ddd",
-                  padding: "12px",
-                }}
-              >
-                মোট বাকি
-              </td>
-
-              <td
-                style={{
-                  border: "1px solid #ddd",
-                  padding: "12px",
-                  fontWeight: "bold",
-                }}
-              >
-                {formatMoney(
-                  monthly?.totalDue ?? 0
-                )}
-              </td>
-            </tr>
-
-            <tr>
-              <td
-                style={{
-                  border: "1px solid #ddd",
-                  padding: "12px",
-                }}
-              >
-                মোট জমা
-              </td>
-
-              <td
-                style={{
-                  border: "1px solid #ddd",
-                  padding: "12px",
-                  fontWeight: "bold",
-                }}
-              >
-                {formatMoney(
-                  monthly?.totalPayment ?? 0
-                )}
-              </td>
-            </tr>
-
-            <tr>
-              <td
-                style={{
-                  border: "1px solid #ddd",
-                  padding: "12px",
-                }}
-              >
-                নেট বাকি
-              </td>
-
-              <td
-                style={{
-                  border: "1px solid #ddd",
-                  padding: "12px",
-                  fontWeight: "bold",
-                }}
-              >
-                {formatMoney(
-                  monthly?.balance ?? 0
-                )}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <p
-          style={{
-            color: "#6b7280",
-            fontSize: "12px",
-            marginTop: "40px",
-          }}
-        >
-          Generated by Saiful Store
-        </p>
       </div>
     </main>
   );

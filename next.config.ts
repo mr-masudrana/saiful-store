@@ -5,9 +5,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
   webpack: (config) => {
-    // Termux / Android compatibility
     config.cache = false;
-
     return config;
   },
 };

@@ -9,10 +9,10 @@ export const metadata: Metadata = {
   title: "Saiful Store",
   description: "Saiful Store Customer Credit Management",
   manifest: "/manifest.webmanifest",
-  //icons: {
-    //icon: "/icon-192.png",
-    //apple: "/icon-192.png",
-  //},
+  icons: {
+    icon: "/favicon.png",
+    apple: "/icon-192.png",
+  },
 };
 
 export const viewport: Viewport = {
@@ -26,6 +26,26 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="bn">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var theme = localStorage.getItem("saiful-store-theme") || "system";
+                  var dark = theme === "dark" ||
+                    (theme === "system" &&
+                    window.matchMedia("(prefers-color-scheme: dark)").matches);
+      
+                  document.documentElement.classList.add(
+                    dark ? "dark" : "light"
+                  );
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body>
         {children}
 

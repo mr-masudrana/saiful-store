@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Check,
+  Code2,
   LogOut,
   Monitor,
   Moon,
   Sun,
   UserRound,
-  Code2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -18,56 +18,108 @@ import Link from "next/link";
 
 type Theme = "system" | "light" | "dark";
 
+const themes = [
+  {
+    id: "system" as Theme,
+    title: "System",
+    description: "আপনার ফোনের থিম অনুসরণ করবে",
+    icon: Monitor,
+  },
+  {
+    id: "light" as Theme,
+    title: "Light",
+    description: "উজ্জ্বল Light theme ব্যবহার করুন",
+    icon: Sun,
+  },
+  {
+    id: "dark" as Theme,
+    title: "Dark",
+    description: "ডার্ক theme ব্যবহার করুন",
+    icon: Moon,
+  },
+];
+
+function applyTheme(selectedTheme: Theme) {
+  const root = document.documentElement;
+
+  root.classList.remove("light", "dark");
+
+  if (selectedTheme === "system") {
+    const systemDark = window.matchMedia(
+      "(prefers-color-scheme: dark)"
+    ).matches;
+
+    root.classList.add(systemDark ? "dark" : "light");
+    return;
+  }
+
+  root.classList.add(selectedTheme);
+}
+
 export default function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("saiful-store-theme") as Theme | null;
+    const savedTheme = localStorage.getItem(
+      "saiful-store-theme"
+    ) as Theme | null;
 
-    if (
+    const initialTheme: Theme =
       savedTheme === "system" ||
       savedTheme === "light" ||
       savedTheme === "dark"
-    ) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
-    } else {
-      applyTheme("system");
-    }
+        ? savedTheme
+        : "system";
+
+    setTheme(initialTheme);
+    applyTheme(initialTheme);
+
+    const mediaQuery = window.matchMedia(
+      "(prefers-color-scheme: dark)"
+    );
+
+    const handleSystemThemeChange = () => {
+      const currentTheme = localStorage.getItem(
+        "saiful-store-theme"
+      );
+
+      if (!currentTheme || currentTheme === "system") {
+        applyTheme("system");
+      }
+    };
+
+    mediaQuery.addEventListener(
+      "change",
+      handleSystemThemeChange
+    );
+
+    return () => {
+      mediaQuery.removeEventListener(
+        "change",
+        handleSystemThemeChange
+      );
+    };
   }, []);
-
-  function applyTheme(selectedTheme: Theme) {
-    const root = document.documentElement;
-
-    if (selectedTheme === "system") {
-      const systemDark = window.matchMedia(
-        "(prefers-color-scheme: dark)"
-      ).matches;
-
-      root.classList.toggle("dark", systemDark);
-      root.classList.toggle("light", !systemDark);
-    } else if (selectedTheme === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.add("light");
-      root.classList.remove("dark");
-    }
-  }
 
   function handleThemeChange(newTheme: Theme) {
     setTheme(newTheme);
 
-    localStorage.setItem("saiful-store-theme", newTheme);
+    localStorage.setItem(
+      "saiful-store-theme",
+      newTheme
+    );
 
     applyTheme(newTheme);
 
-    toast.success(
+    const message =
       newTheme === "system"
-        ? "System theme selected"
-        : `${newTheme === "light" ? "Light" : "Dark"} theme selected`
-    );
+        ? "System theme চালু হয়েছে"
+        : newTheme === "light"
+        ? "Light theme চালু হয়েছে"
+        : "Dark theme চালু হয়েছে";
+
+    toast.success(message);
   }
 
   async function handleLogout() {
@@ -76,7 +128,8 @@ export default function SettingsPage() {
 
       const supabase = createClient();
 
-      const { error } = await supabase.auth.signOut();
+      const { error } =
+        await supabase.auth.signOut();
 
       if (error) {
         throw new Error(error.message);
@@ -95,27 +148,6 @@ export default function SettingsPage() {
       setLoggingOut(false);
     }
   }
-
-  const themes = [
-    {
-      id: "system" as Theme,
-      title: "System",
-      description: "Use your device theme",
-      icon: Monitor,
-    },
-    {
-      id: "light" as Theme,
-      title: "Light",
-      description: "Use light theme",
-      icon: Sun,
-    },
-    {
-      id: "dark" as Theme,
-      title: "Dark",
-      description: "Use dark theme",
-      icon: Moon,
-    },
-  ];
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 pb-28 pt-5 text-white md:px-8">
@@ -136,7 +168,7 @@ export default function SettingsPage() {
             </h1>
 
             <p className="text-sm text-slate-400">
-              Manage your app preferences
+              অ্যাপের সেটিংস পরিচালনা করুন
             </p>
           </div>
         </div>
@@ -153,7 +185,7 @@ export default function SettingsPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-400">
-              Manage your account
+              আপনার অ্যাকাউন্ট
             </p>
           </div>
 
@@ -163,7 +195,7 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <p className="font-medium text-white">
+              <p className="font-medium">
                 Shopkeeper
               </p>
 
@@ -174,7 +206,7 @@ export default function SettingsPage() {
           </div>
         </motion.section>
 
-        {/* Theme */}
+        {/* Appearance */}
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -187,7 +219,7 @@ export default function SettingsPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-400">
-              Choose how Saiful Store looks
+              অ্যাপের থিম নির্বাচন করুন
             </p>
           </div>
 
@@ -200,7 +232,9 @@ export default function SettingsPage() {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => handleThemeChange(item.id)}
+                  onClick={() =>
+                    handleThemeChange(item.id)
+                  }
                   className={`flex w-full items-center gap-4 rounded-xl border p-4 text-left transition ${
                     selected
                       ? "border-blue-500 bg-blue-600/10"
@@ -218,7 +252,7 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="flex-1">
-                    <p className="font-medium text-white">
+                    <p className="font-medium">
                       {item.title}
                     </p>
 
@@ -243,10 +277,10 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="mb-8 rounded-2xl border border-red-900/40 bg-slate-900 p-5"
+          className="mb-10 rounded-2xl border border-red-900/40 bg-slate-900 p-5"
         >
           <div className="flex items-center gap-4">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
               <LogOut size={21} />
             </div>
 
@@ -256,7 +290,7 @@ export default function SettingsPage() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-400">
-                Sign out from your account
+                আপনার অ্যাকাউন্ট থেকে লগআউট করুন
               </p>
             </div>
 
@@ -264,15 +298,17 @@ export default function SettingsPage() {
               type="button"
               onClick={handleLogout}
               disabled={loggingOut}
-              className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
             >
-              {loggingOut ? "Logging out..." : "Logout"}
+              {loggingOut
+                ? "Logging out..."
+                : "Logout"}
             </button>
           </div>
         </motion.section>
 
         {/* Developer */}
-        <section className="border-t border-slate-800 pt-8 text-center">
+        <section className="border-t border-slate-800 pb-5 pt-8 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-blue-400">
             <Code2 size={28} />
           </div>
@@ -293,7 +329,6 @@ export default function SettingsPage() {
             © {new Date().getFullYear()} Masud Rana
           </p>
         </section>
-
       </div>
     </main>
   );
